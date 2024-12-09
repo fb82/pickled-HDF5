@@ -16,7 +16,14 @@ class pickled_hdf5:
 
 
     def get_keys(self):
-        return self.hdf5[self.label_prefix].keys()
+        keys = []
+        def check_item(key, what):
+            if isinstance(what, h5py.Dataset): keys.append(what.name)
+
+        self.hdf5[self.label_prefix].visititems(check_item)
+
+        l = len(self.label_prefix)
+        return [key[l:] for key in keys]
 
 
     def add(self, label, data, overwrite=True, hdf5_args={'compression':'gzip', 'compression_opts':9}):
@@ -74,8 +81,13 @@ if __name__ == '__main__':
     dummy_data = [np.full((3000, 4000), 10), torch.rand([40, 30], device='cuda')]
     print(dummy_data)
 
+    other_dummy_data = 'nothing'
+    print(other_dummy_data)
+
     pkh5 = pickled_hdf5('database.hdf5')
     pkh5.add('/something', dummy_data)
+    pkh5.add('/something_more/other', other_dummy_data)
+
     h5 = pkh5.get_hdf5()
     h5['/something_else'] = np.asarray([0, 1, 2, 3])
     pkh5.close()
