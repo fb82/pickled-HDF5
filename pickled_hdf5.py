@@ -6,6 +6,23 @@ import h5py
 # basic interface class to handle pickle objects in hdf5 files
 # by default the '/picked' prefix is append to pickled object to distinguish them in the base hdf5 file 
 class pickled_hdf5:
+    @staticmethod
+    def as_numpy(data):
+        bf = io.BytesIO()
+        cPickle.dump(data, bf)
+
+        buffer = bf.getbuffer()
+        return np.frombuffer(buffer, dtype='uint8')
+
+
+    @staticmethod
+    def from_numpy(data):
+        m = data
+        d = io.BytesIO(m.tobytes())
+
+        return cPickle.load(d)
+
+
     def __init__(self, filename, mode='a', label_prefix='/pickled'):
         self.hdf5 = h5py.File(filename, mode)
         self.label_prefix = label_prefix
@@ -26,36 +43,46 @@ class pickled_hdf5:
         return [key[l:] for key in keys]
 
 
-    def add(self, label, data, overwrite=True, hdf5_args={'compression':'gzip', 'compression_opts':9}):
+    def add(self, label, data, overwrite=True, allow_delete_group=False, hdf5_args={'compression':'gzip', 'compression_opts':9}):
         true_label = self.label_prefix + label
 
-        bf = io.BytesIO()
-        cPickle.dump(data, bf)
+        key_exist = self.hdf5.__contains__(true_label)
+        if (key_exist):
+            if (not overwrite): return False
+            if (not isinstance(self.hdf5[true_label], h5py.Dataset)) and (not allow_delete_group): return False
+            del self.hdf5[true_label]
 
-        buffer = bf.getbuffer()
-        v = np.frombuffer(buffer, dtype='uint8')
-        
-        if true_label in self.hdf5.keys():
-            if overwrite:
-                del self.hdf5[true_label]
-            else:
-                return False
-
+        v = pickled_hdf5.as_numpy(data)
         self.hdf5.create_dataset(true_label, data=v, **hdf5_args)
-        return True
+        return True 
 
 
     def contain(self, label):
-        if (self.label_prefix + label) in self.hdf5.keys(): return True
-        else: return False
+        true_label = self.label_prefix + label
+        
+        key_exist = self.hdf5.__contains__(true_label)
 
+        if key_exist:
+            is_valid = isinstance(self.hdf5[true_label], h5py.Dataset)
+        else:
+            is_valid = None
 
-    def remove(self, label):
+        return key_exist, is_valid 
+        
+
+    def remove(self, label, allow_delete_group=False):
         true_label = self.label_prefix + label
 
-        if true_label in self.hdf5.keys():
+        key_exist = self.hdf5.__contains__(true_label)
+
+        if key_exist:
+            is_valid = isinstance(self.hdf5[true_label], h5py.Dataset)
+
+            if (not is_valid) and (not allow_delete_group):
+                return False
+
             del self.hdf5[true_label]
-            return True
+            return True            
         else:
             return False
 
@@ -63,13 +90,14 @@ class pickled_hdf5:
     def get(self, label):
         true_label = self.label_prefix + label
 
-        if not(true_label in self.hdf5.keys()):
+        key_exist = self.hdf5.__contains__(true_label)
+        if key_exist:
+            is_valid = isinstance(self.hdf5[true_label], h5py.Dataset)
+            
+        if (not key_exist) or (not is_valid):
             return None, False
 
-        m = np.array(self.hdf5[true_label])
-        d = io.BytesIO(m.tobytes())
-
-        return cPickle.load(d), True
+        return  pickled_hdf5.from_numpy(np.array(self.hdf5[true_label])), True
 
 
     def close(self):
@@ -78,29 +106,56 @@ class pickled_hdf5:
 
 import torch
 if __name__ == '__main__':
-    dummy_data = [np.full((3000, 4000), 10), torch.rand([40, 30], device='cuda')]
-    print(dummy_data)
+    dummy_data_1 = [np.full((3000, 4000), 10), torch.rand([40, 30], device='cuda')]
+    print(f"dummy_data_1: {dummy_data_1}")
 
-    other_dummy_data = 'nothing'
-    print(other_dummy_data)
+    dummy_data_2 = {'a': 'nothing', 'b': torch.rand([5, 5], device='cuda')} 
+    print(f"dummy_data_2: {dummy_data_2}")
 
+    print("creating pickled-hdf5 database")
     pkh5 = pickled_hdf5('database.hdf5')
-    pkh5.add('/something', dummy_data)
-    pkh5.add('/something_more/other', other_dummy_data)
+    
+    print("adding dummy_data_1 as key '/something/a'")
+    pkh5.add('/something/a', dummy_data_1)
 
+    print("adding dummy_data_2 as key '/something/b/other'")    
+    pkh5.add('/something/b/other', dummy_data_2)
+
+    print("getting hdf5 internal pointer")
     h5 = pkh5.get_hdf5()
+
+    print("adding array [0 1 2 3] as key '/something_else'")
     h5['/something_else'] = np.asarray([0, 1, 2, 3])
+
+    print("closing database")
     pkh5.close()
 
+    print("reload database as read only")
     pkh5 = pickled_hdf5('database.hdf5', 'r')
-    
-    h5 = pkh5.get_hdf5()
-    print(list(h5.keys()))
-    print(h5['/something_else'][()])
-    
-    print(list(pkh5.get_keys()))
-    print(pkh5.contain('/missed'))
-    print(pkh5.contain('/something'))
 
-    restored_dummy_data, ok = pkh5.get('/something')
-    print(restored_dummy_data, ok)
+    print("getting hdf5 internal pointer")    
+    h5 = pkh5.get_hdf5()
+
+    l = list(h5.keys())  
+    print(f"printing hdf5 root keys: {l} - note that '/pickled' contains pickled-hdf5 keys")
+    
+    d = h5['/something_else'][()]
+    print(f"'/something_else': {d}")
+ 
+    l = list(pkh5.get_keys())
+    print(f"all pickled keys: {l}")
+    
+    t = pkh5.contain('/missed')
+    print(f"pickled database contains /'missed': {t}")
+
+    t = pkh5.contain('/something')
+    print(f"pickled database contains '/something' which is a hdf5 group: {t}")
+
+    t = pkh5.contain('/something/a')
+    print(f"pickled database contains '/something/a', which is a pickled data: {t}")
+
+    restored_dummy_data, ok = pkh5.get('/something/a')    
+    print(f"dummy_data_1: {restored_dummy_data} - retrieval is ok: {ok}")
+
+    restored_dummy_data, ok = pkh5.get('/something/b/other')    
+    print(f"dummy_data_2: {restored_dummy_data} - retrieval is ok: {ok}")
