@@ -23,7 +23,7 @@ class pickled_hdf5:
         return cPickle.load(d)
 
 
-    def __init__(self, filename, mode='a', label_prefix='/pickled'):
+    def __init__(self, filename, mode='a', label_prefix='pickled'):
         self.hdf5 = h5py.File(filename, mode)
         self.label_prefix = label_prefix
 
