@@ -4,7 +4,7 @@ import io
 import h5py
 
 # basic interface class to handle pickle objects in hdf5 files
-# by default the '/picked' prefix is append to pickled object to distinguish them in the base hdf5 file 
+# by default the 'picked' prefix is append to pickled object to distinguish them in the base hdf5 file 
 class pickled_hdf5:
     @staticmethod
     def as_numpy(data):
