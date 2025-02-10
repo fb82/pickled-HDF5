@@ -39,7 +39,7 @@ class pickled_hdf5:
 
         self.hdf5[self.label_prefix].visititems(check_item)
 
-        l = len(self.label_prefix)
+        l = len(self.label_prefix) + 1
         return [key[l:] for key in keys]
 
 
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     print(f"all pickled keys: {l}")
     
     t = pkh5.contain('/missed')
-    print(f"pickled database contains /'missed': {t}")
+    print(f"pickled database contains '/missed': {t}")
 
     t = pkh5.contain('/something')
     print(f"pickled database contains '/something' which is a hdf5 group: {t}")
