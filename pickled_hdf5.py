@@ -24,7 +24,8 @@ class pickled_hdf5:
 
 
     def __init__(self, filename, mode='a', label_prefix='pickled'):
-        self.hdf5 = h5py.File(filename, mode)
+        if filename is None: self.hdf5 = None
+        else: self.hdf5 = h5py.File(filename, mode)
         self.label_prefix = label_prefix
 
 
@@ -33,6 +34,8 @@ class pickled_hdf5:
 
 
     def get_keys(self):
+        if self.hdf5 is None: return []
+        
         keys = []
         def check_item(key, what):
             if isinstance(what, h5py.Dataset): keys.append(what.name)
@@ -44,6 +47,8 @@ class pickled_hdf5:
 
 
     def add(self, label, data, overwrite=True, allow_delete_group=False, hdf5_args={'compression':'gzip', 'compression_opts':9}):
+        if self.hdf5 is None: return False
+
         true_label = self.label_prefix + label
 
         key_exist = self.hdf5.__contains__(true_label)
@@ -58,6 +63,8 @@ class pickled_hdf5:
 
 
     def contain(self, label):
+        if self.hdf5 is None: return False, None
+        
         true_label = self.label_prefix + label
         
         key_exist = self.hdf5.__contains__(true_label)
@@ -71,6 +78,8 @@ class pickled_hdf5:
         
 
     def remove(self, label, allow_delete_group=False):
+        if self.hdf5 is None: return False
+                
         true_label = self.label_prefix + label
 
         key_exist = self.hdf5.__contains__(true_label)
@@ -88,6 +97,8 @@ class pickled_hdf5:
 
 
     def get(self, label):
+        if self.hdf5 is None: return None, False        
+        
         true_label = self.label_prefix + label
 
         key_exist = self.hdf5.__contains__(true_label)
@@ -101,7 +112,7 @@ class pickled_hdf5:
 
 
     def close(self):
-        self.hdf5.close()
+        if not (self.hdf5 is None): self.hdf5.close()
 
 
 import torch
@@ -159,3 +170,19 @@ if __name__ == '__main__':
 
     restored_dummy_data, ok = pkh5.get('/something/b/other')    
     print(f"dummy_data_2: {restored_dummy_data} - retrieval is ok: {ok}")
+    
+    print("removing pickled-hdf5 database")
+    pkh5.close()
+
+    print("creating null pickled-hdf5 database")
+    pkh5 = pickled_hdf5(None)
+
+    l = list(pkh5.get_keys())
+    print(f"all pickled keys in null pickled-hdf5 database: {l}")
+    
+    print("adding dummy_data_1 as key '/something' in null pickled-hdf5 database")    
+    pkh5.add('/something', dummy_data_1)
+    
+    t = pkh5.contain('/something')
+    print(f"null pickled database contains '/something': {t}")
+    
