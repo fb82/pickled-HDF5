@@ -23,10 +23,12 @@ class pickled_hdf5:
         return cPickle.load(d)
 
 
-    def __init__(self, filename, mode='a', label_prefix='pickled'):
+    def __init__(self, filename, mode='a', label_prefix='pickled', cache_size=1000):
         if filename is None: self.hdf5 = None
-        else: self.hdf5 = h5py.File(filename, mode)
+        else: self.hdf5 = h5py.File(filename, mode, rdcc_nbytes=64 * 1024 * 1024)
         self.label_prefix = label_prefix
+        self.cache_size = cache_size
+        self._cache = {}
 
 
     def get_hdf5(self):
@@ -40,26 +42,44 @@ class pickled_hdf5:
         def check_item(key, what):
             if isinstance(what, h5py.Dataset): keys.append(what.name)
 
-        self.hdf5[self.label_prefix].visititems(check_item)
+        if self.label_prefix in self.hdf5:
+            self.hdf5[self.label_prefix].visititems(check_item)
 
         l = len(self.label_prefix) + 1
         return [key[l:] for key in keys]
 
 
-    def add(self, label, data, overwrite=True, allow_delete_group=False, hdf5_args={'compression':'gzip', 'compression_opts':9}):
+    def flush(self):
+        if self.hdf5 is None or not self._cache: return
+
+        for true_label, (data, hdf5_args) in self._cache.items():
+            if self.hdf5.__contains__(true_label):
+                del self.hdf5[true_label]
+            v = pickled_hdf5.as_numpy(data)
+            self.hdf5.create_dataset(true_label, data=v, **hdf5_args)
+
+        self._cache = {}
+
+
+    def add(self, label, data, overwrite=True, allow_delete_group=False, hdf5_args={'compression': 'lzf'}):
         if self.hdf5 is None: return False
 
         true_label = self.label_prefix + label
 
-        key_exist = self.hdf5.__contains__(true_label)
-        if (key_exist):
-            if (not overwrite): return False
-            if (not isinstance(self.hdf5[true_label], h5py.Dataset)) and (not allow_delete_group): return False
-            del self.hdf5[true_label]
+        if true_label in self._cache:
+            if not overwrite: return False
+        else:
+            key_exist = self.hdf5.__contains__(true_label)
+            if key_exist:
+                if not overwrite: return False
+                if (not isinstance(self.hdf5[true_label], h5py.Dataset)) and (not allow_delete_group): return False
 
-        v = pickled_hdf5.as_numpy(data)
-        self.hdf5.create_dataset(true_label, data=v, **hdf5_args)
-        return True 
+        self._cache[true_label] = (data, hdf5_args)
+
+        if len(self._cache) >= self.cache_size:
+            self.flush()
+
+        return True
 
 
     def contain(self, label):
@@ -82,6 +102,10 @@ class pickled_hdf5:
                 
         true_label = self.label_prefix + label
 
+        if true_label in self._cache:
+            del self._cache[true_label]
+            return True
+
         key_exist = self.hdf5.__contains__(true_label)
 
         if key_exist:
@@ -101,6 +125,9 @@ class pickled_hdf5:
         
         true_label = self.label_prefix + label
 
+        if true_label in self._cache:
+            return self._cache[true_label][0], True
+
         key_exist = self.hdf5.__contains__(true_label)
         if key_exist:
             is_valid = isinstance(self.hdf5[true_label], h5py.Dataset)
@@ -108,11 +135,13 @@ class pickled_hdf5:
         if (not key_exist) or (not is_valid):
             return None, False
 
-        return  pickled_hdf5.from_numpy(np.array(self.hdf5[true_label])), True
+        return pickled_hdf5.from_numpy(self.hdf5[true_label][()]), True
 
 
     def close(self):
-        if not (self.hdf5 is None): self.hdf5.close()
+        if not (self.hdf5 is None):
+            self.flush()
+            self.hdf5.close()
 
 
 import torch
