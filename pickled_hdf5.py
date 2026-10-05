@@ -46,8 +46,20 @@ class pickled_hdf5:
         if self.label_prefix in self.hdf5:
             self.hdf5[self.label_prefix].visititems(check_item)
 
+        # hdf5 names are absolute ('/' + true_label): skip the ones pending
+        # removal, then append the ones only added to the cache so far
         l = len(self.label_prefix) + 1
-        return [key[l:] for key in keys]
+        out = [key[l:] for key in keys if key[1:] not in self.to_flush]
+        seen = set(out)
+
+        l = len(self.label_prefix)
+        for true_label, hdf5_args in self.to_flush.items():
+            key = true_label[l:]
+            if (hdf5_args is not None) and (key not in seen):
+                out.append(key)
+                seen.add(key)
+
+        return out
 
 
     def check_flush(self):
