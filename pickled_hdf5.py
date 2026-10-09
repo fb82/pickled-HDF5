@@ -74,14 +74,13 @@ class pickled_hdf5:
             if self.hdf5.__contains__(true_label):
                 del self.hdf5[true_label]
             if hdf5_args is not None:
-                v = pickled_hdf5.as_numpy(self._cache[true_label])
-                self.hdf5.create_dataset(true_label, data=v, **hdf5_args)
+                self.hdf5.create_dataset(true_label, data=self._cache[true_label], **hdf5_args)
 
         self._cache = {}
         self.to_flush = {}
 
 
-    def add(self, label, data, overwrite=True, allow_delete_group=False, hdf5_args={'compression': 'lzf'}):
+    def add(self, label, data, overwrite=True, allow_delete_group=False, hdf5_args={'compression': 'lzf'}, force_no_cache=False):
         if self.hdf5 is None: return False
 
         true_label = self.label_prefix + label
@@ -94,7 +93,15 @@ class pickled_hdf5:
                 if not overwrite: return False
                 if (not isinstance(self.hdf5[true_label], h5py.Dataset)) and (not allow_delete_group): return False
 
-        self._cache[true_label] = data
+        if force_no_cache:
+            self._cache.pop(true_label, None)
+            self.to_flush.pop(true_label, None)
+            if self.hdf5.__contains__(true_label):
+                del self.hdf5[true_label]
+            self.hdf5.create_dataset(true_label, data=pickled_hdf5.as_numpy(data), **hdf5_args)
+            return True
+
+        self._cache[true_label] = pickled_hdf5.as_numpy(data)
         self.to_flush[true_label] = hdf5_args
 
         self.check_flush()
@@ -143,13 +150,13 @@ class pickled_hdf5:
             return in_cache
 
 
-    def get(self, label):
+    def get(self, label, force_no_cache=False):
         if self.hdf5 is None: return None, False        
         
         true_label = self.label_prefix + label
 
         if true_label in self._cache:
-            return self._cache[true_label], True
+            return pickled_hdf5.from_numpy(self._cache[true_label]), True
 
         key_exist = self.hdf5.__contains__(true_label) and true_label not in self.to_flush
         if key_exist:
@@ -158,12 +165,13 @@ class pickled_hdf5:
         if (not key_exist) or (not is_valid):
             return None, False
 
-        data = pickled_hdf5.from_numpy(self.hdf5[true_label][()])
+        raw = self.hdf5[true_label][()]
 
-        self.check_flush()
-        self._cache[true_label] = data
+        if not force_no_cache:
+            self.check_flush()
+            self._cache[true_label] = raw
 
-        return data, True
+        return pickled_hdf5.from_numpy(raw), True
 
 
     def close(self):
